@@ -29,3 +29,15 @@ test('cloud auth, RPCs, pagination, refresh, failures and logout',async()=>{
  globalThis.fetch=async()=>respond({message:'That username is already taken.'},409);await assert.rejects(db.signup('new_user','test-password'),/already taken/);
  globalThis.fetch=async()=>respond({msg:'Invalid login credentials'},400);await assert.rejects(db.login('Test_User','wrong-password'),/Invalid login credentials/);
 });
+
+test('short-password sign-in uses the adapter and existing accounts retain their passwords',async()=>{
+ const bodies=[];
+ globalThis.fetch=async(url,opts)=>{bodies.push(JSON.parse(opts.body));return respond(session);};
+ await db.login('Nick','a');assert.match(bodies[0].password,/^Tb1![a-f0-9]{64}$/);
+ let calls=0;
+ globalThis.fetch=async(url,opts)=>{calls++;const body=JSON.parse(opts.body);if(calls===1)return respond({code:'invalid_credentials',msg:'Invalid login credentials'},400);assert.equal(body.password,'old-password');return respond(session);};
+ await db.login('Nick','old-password');assert.equal(calls,2);
+ calls=0;
+ globalThis.fetch=async()=>{calls++;return respond({code:'invalid_credentials',msg:'Invalid login credentials'},400);};
+ await assert.rejects(db.login('Nick','a'),/Invalid login credentials/);assert.equal(calls,1);
+});

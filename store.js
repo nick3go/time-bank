@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { preparePassword } from './password.js';
 import { normalizeUsername, usernameIdentity } from './username.js';
 import { monday, today } from './core.js';
 const LOCAL_KEY = 'time-bank-local-v1';
@@ -22,11 +23,21 @@ async function refresh() {
 async function auth(path, body) {
   const response = await fetch(config.url+'/auth/v1/'+path,{method:'POST',headers:{apikey:config.publishableKey,'Content-Type':'application/json'},body:JSON.stringify(body)});
   const data = await response.json();
-  if (!response.ok) throw Error(data.msg || data.error_description || data.message || 'Unable to sign in.');
+  if (!response.ok) { const error=Error(data.msg || data.error_description || data.message || 'Unable to sign in.');error.status=response.status;error.code=data.error_code||data.code;throw error; }
   if (data.access_token) persistSession({...data,expires_at:Math.floor(Date.now()/1000)+data.expires_in});
   return data;
 }
-export const login = (username,password) => auth('token?grant_type=password',{email:usernameIdentity(username),password});
+export async function login(username,password) {
+ const email=usernameIdentity(username);
+ const prepared=await preparePassword(username,password);
+ try { return await auth('token?grant_type=password',{email,password:prepared}); }
+ catch(error) {
+  // Accounts created before this change retain their original passwords.
+  const invalid=error.code==='invalid_credentials'||error.message==='Invalid login credentials';
+  if(error.status===400&&invalid&&password.length>=8)return auth('token?grant_type=password',{email,password});
+  throw error;
+ }
+}
 export async function signup(username,password) {
  username=normalizeUsername(username);
  const response=await fetch(config.url+'/functions/v1/time-bank-signup',{method:'POST',headers:{apikey:config.publishableKey,'Content-Type':'application/json'},body:JSON.stringify({username,password})});
