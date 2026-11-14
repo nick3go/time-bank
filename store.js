@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { normalizeUsername, usernameIdentity } from './username.js';
 import { monday, today } from './core.js';
 const LOCAL_KEY = 'time-bank-local-v1';
 const SESSION_KEY = 'time-bank-session-v1';
@@ -7,7 +8,7 @@ let session = null;
 try { session = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch {}
 const persistSession = value => { session = value; value ? localStorage.setItem(SESSION_KEY,JSON.stringify(value)) : localStorage.removeItem(SESSION_KEY); };
 export const signedIn = () => Boolean(session?.user?.id);
-export const accountEmail = () => session?.user?.email || '';
+export const accountUsername = () => session?.user?.user_metadata?.time_bank_username || '';
 let refreshing;
 async function refresh() {
   if (!refreshing) refreshing = (async()=> {
@@ -25,8 +26,14 @@ async function auth(path, body) {
   if (data.access_token) persistSession({...data,expires_at:Math.floor(Date.now()/1000)+data.expires_in});
   return data;
 }
-export const login = (email,password) => auth('token?grant_type=password',{email,password});
-export const signup = (email,password) => auth('signup',{email,password});
+export const login = (username,password) => auth('token?grant_type=password',{email:usernameIdentity(username),password});
+export async function signup(username,password) {
+ username=normalizeUsername(username);
+ const response=await fetch(config.url+'/functions/v1/time-bank-signup',{method:'POST',headers:{apikey:config.publishableKey,'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+ const data=await response.json();
+ if(!response.ok)throw Error(data.message||'Unable to create your account.');
+ return login(username,password);
+}
 export async function logout() {
   try { if (session) await fetch(config.url+'/auth/v1/logout',{method:'POST',headers:{apikey:config.publishableKey,Authorization:'Bearer '+session.access_token}}); }
   finally { persistSession(null); }
