@@ -15,11 +15,13 @@ A small, responsive time allowance tracker: receive **10 hours every Monday**, s
 - Ljubljana calendar dates; Monday credit is independent of daylight saving time. Weekly credits accumulate even while the app is closed.
 - Dependency-free frontend; integer-minute arithmetic and automated calculation tests.
 
-## Backend connection
+## Username-only access
 
-Connected to the existing Supabase project `ngtkrtabbxrwduleenwn`, identified by its `g4a_private` and `timeline_private` application schemas. A dedicated **time_bank** schema has been created. Existing application tables and shared Auth settings were preserved.
+Enter a username and choose **Open time bank**. There is no password, email verification or separate registration. A new username gets a new bank; an existing username opens the same saved bank. Usernames are case-insensitive, 3–30 characters, with letters, numbers, underscores and hyphens, starting with a letter or number.
 
-Sign in and create an account with a **username and password**. No email address or confirmation is required. Usernames are case-insensitive, 3–30 characters, and allow letters, numbers, underscores and hyphens; the first character must be a letter or number. Any non-empty password is accepted, including a single character; there are no password length or complexity rules in the UI. Each account has its own settings and spending records, protected with row level security. Email password recovery is unavailable. There were no existing accounts when username sign-in was introduced.
+**Anyone who knows a username can view and change its time bank.** This is intentional and requested; usernames are identifiers, not private authentication credentials.
+
+The app uses the existing Supabase project `ngtkrtabbxrwduleenwn` and the dedicated `time_bank` schema. Existing balances and entries remain attached to the same internal identities.
 
 ## Run locally
 
@@ -35,19 +37,17 @@ Serve the files over HTTP, rather than opening index.html directly. No install o
 
 ## Backend implementation
 
-`supabase/setup.sql` records the setup already applied to the project. **Do not rerun it on the configured project.** For a new project, run it once, then apply `supabase/username-auth.sql`, deploy the `supabase/functions/time-bank-signup` Edge Function and replace the public URL/key in `config.js` and the function’s public-key allowlist. Never put service-role or secret credentials in frontend code.
+`supabase/setup.sql` records the database setup already applied. Do not rerun it on the configured project. For a new project, run it once, update `config.js`, then deploy `supabase/functions/time-bank-open` with its public-key allowlist updated for that project. Never expose a service-role key to the frontend.
 
-The schema stays outside the Data API's exposed-schema list. Four owner-scoped `public.time_bank_*` RPC functions use caller privileges (`SECURITY INVOKER`), with access granted only to authenticated users. Table RLS independently restricts reads and writes to the current user. Removing an entry is a soft delete; clients have no DELETE permission. Weekly credits are derived, so reloads and multiple devices cannot create duplicate allowances.
+The username-only Edge Function validates the app key and username, then generates and exchanges a session for that app-specific internal identity (`<username>@users.time-bank.invalid`). No email is sent. Only identities in this fixed namespace can be opened. The admin key remains server-side. Gateway JWT verification is disabled because a username can be opened before a session exists. The resulting normal Supabase session supports reloads, refresh and switching usernames, while allowing the database's existing owner-scoped RPC functions and RLS to keep banks separate.
 
-`supabase/verify.sql` runs transactional integration checks: it creates two temporary fixture users and verifies persistence, input constraints, cross-user read/write isolation, and denied anonymous RPC access. It rolls back all fixture records. These checks have passed on the connected project. The security advisor reported no findings for the new Time Bank tables or functions.
+This session mechanism **does not provide password protection**: any caller knowing a username can obtain that bank's session through the intentional public endpoint. No authentication settings for other applications have been changed.
 
-UI spending/edit/remove/undo was exercised in browser-only mode before cloud configuration. Automated tests cover username normalization, account creation, login, session refresh, RPC calls, rejected credentials, duplicate names and rate limits. The live Auth settings, invalid-login UI feedback and anonymous RPC denial were also checked. A disposable live account passed username signup without email, password login, profile save, spending save/reload, session refresh and logout. Its session was revoked and fixture account/data removed afterward.
+The old username/password signup source, password adapter and signup-limiter migration are retained as historical implementation records; the current frontend does not call them. They are not required for a new username-only installation.
 
-The signup Edge Function creates an app-specific internal identity (`<username>@users.time-bank.invalid`) through the server-only Auth Admin API, confirmed at creation, then the browser signs in through standard Supabase Auth. Internal identifiers are never used for email delivery. Signup and login consistently adapt the entered password into a fixed-length internal credential, which Supabase then hashes. This permits simple passwords without modifying the shared Auth configuration. Accounts created before this change retain their original passwords through a compatibility login path. Passwords are never stored in plaintext. Standard session JWTs keep the existing ownership policies intact. Privileged credentials stay in the Edge Function environment; only public configuration is in the client. Shared Auth settings are unchanged.
+`supabase/verify.sql` checks the existing RPC/data policies using rolled-back fixtures. Automated frontend and endpoint tests cover normalization, session storage and refresh, opening without a password, malformed requests and backend errors. All hour calculations and entry controls are unchanged.
 
-The signup endpoint has gateway JWT verification disabled because new users have no session yet. It validates the application key, username and password itself and calls a service-only database rate limiter. The private limiter stores salted IP hashes, allows five attempts per IP/hour and fifteen/day, and expires old buckets. Client roles cannot call or alter it. Supabase Auth continues to handle password login and its standard rate limits.
-
-If URL/key configuration is intentionally cleared for local development, the app visibly falls back to browser-only storage. Local records stay separate from cloud records. Export them before switching; automatic import is not implemented.
+If URL/key configuration is cleared for local development, the app visibly uses browser-only storage. Local records stay separate from cloud records; automatic import is not implemented.
 
 ## GitHub Pages
 

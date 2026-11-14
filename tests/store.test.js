@@ -10,7 +10,7 @@ const session={access_token:'test-token',refresh_token:'test-refresh',expires_in
 test('cloud auth, RPCs, pagination, refresh, failures and logout',async()=>{
  const calls=[];
  globalThis.fetch=async(url,opts)=>{calls.push({url,opts});return respond(session);};
- await db.login('Test_User','test-password');assert.equal(db.signedIn(),true);assert.equal(JSON.parse(calls[0].opts.body).email,'test_user@users.time-bank.invalid');
+ await db.login('Test_User');assert.equal(db.signedIn(),true);assert.deepEqual(JSON.parse(calls[0].opts.body),{username:'test_user'});assert.ok(calls[0].url.endsWith('/functions/v1/time-bank-open'));
  let pages=0;
  globalThis.fetch=async(url,opts)=>{calls.push({url,opts});if(url.endsWith('time_bank_get_profile'))return respond([{user_id:'owner',start_week:'2026-11-02',opening_minutes:0}]);pages++;return respond(pages===1?Array.from({length:1000},(_,id)=>({id:String(id)})):[{id:'last'}]);};
  const state=await db.load();assert.equal(state.entries.length,1001);assert.equal(pages,2);
@@ -25,19 +25,6 @@ test('cloud auth, RPCs, pagination, refresh, failures and logout',async()=>{
  globalThis.fetch=async()=>respond({message:'Write denied'},403);
  await assert.rejects(db.saveEntry({id:'new'},{entries:[]}),/Write denied/);
  globalThis.fetch=async()=>respond({});await db.logout();assert.equal(db.signedIn(),false);
- globalThis.fetch=async(url)=>url.includes('/functions/')?respond({username:'new_user'},201):respond(session);await db.signup('New_User','test-password');assert.equal(db.signedIn(),true,'username signup signs in immediately');
- globalThis.fetch=async()=>respond({message:'That username is already taken.'},409);await assert.rejects(db.signup('new_user','test-password'),/already taken/);
- globalThis.fetch=async()=>respond({msg:'Invalid login credentials'},400);await assert.rejects(db.login('Test_User','wrong-password'),/Invalid login credentials/);
-});
-
-test('short-password sign-in uses the adapter and existing accounts retain their passwords',async()=>{
- const bodies=[];
- globalThis.fetch=async(url,opts)=>{bodies.push(JSON.parse(opts.body));return respond(session);};
- await db.login('Nick','a');assert.match(bodies[0].password,/^Tb1![a-f0-9]{64}$/);
- let calls=0;
- globalThis.fetch=async(url,opts)=>{calls++;const body=JSON.parse(opts.body);if(calls===1)return respond({code:'invalid_credentials',msg:'Invalid login credentials'},400);assert.equal(body.password,'old-password');return respond(session);};
- await db.login('Nick','old-password');assert.equal(calls,2);
- calls=0;
- globalThis.fetch=async()=>{calls++;return respond({code:'invalid_credentials',msg:'Invalid login credentials'},400);};
- await assert.rejects(db.login('Nick','a'),/Invalid login credentials/);assert.equal(calls,1);
+ globalThis.fetch=async()=>respond({message:'Unavailable'},503);await assert.rejects(db.login('test_user'),/Unavailable/);
+ globalThis.fetch=async()=>respond({});await assert.rejects(db.login('test_user'),/Unable to open/);
 });

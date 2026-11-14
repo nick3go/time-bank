@@ -16,7 +16,7 @@ function draw(){
  $('next-credit').textContent=`Next credit: ${displayDate(addDays(week,7))}`;
  const prior=rows.filter(r=>r.day<week).at(-1)?.balance||0;$('carryover').textContent=`Carried into this week: ${formatMinutes(prior)}`;
  $('spent-on').min=state.profile.start_week;$('spent-on').max=asOf;$('start-week').max=asOf;
- $('storage-label').textContent=db.cloudEnabled?'Synced with your account':'Saved on this browser only';
+ $('storage-label').textContent=db.cloudEnabled?`Synced · ${db.accountUsername()}`:'Saved on this browser only';
  const list=$('history-list');list.replaceChildren();
  for(const row of [...rows].reverse()){
   const element=document.createElement('article');element.className='history-row '+row.kind;
@@ -45,8 +45,7 @@ $('spend-tab').onclick=()=>switchTab(false);$('history-tab').onclick=()=>switchT
 $('spend-form').addEventListener('input',updatePreview);
 $('spend-form').onsubmit=e=>{e.preventDefault();lock(async()=>{const timed=document.querySelector('input[name=mode]:checked').value==='times';const old=state.entries.find(e=>e.id===editing);const entry={id:editing||crypto.randomUUID(),spent_on:$('spent-on').value,minutes:getMinutes(),note:$('note').value.trim(),start_time:timed?$('start-time').value:null,end_time:timed?$('end-time').value:null,next_day:timed&&$('next-day').checked,created_at:old?.created_at||new Date().toISOString(),deleted_at:null};validateEntry(entry,state.profile);const saved=await db.saveEntry(entry,state);state.entries=editing?state.entries.map(item=>item.id===editing?saved:item):[...state.entries,saved];draw();resetForm();$('duration-preview').textContent='Saved. Your balance is up to date.';},'form-error');};
 $('settings-form').onsubmit=e=>{e.preventDefault();lock(async()=>{const profile={start_week:$('start-week').value,opening_minutes:Math.round(Number($('opening-hours').value)*60)};validateProfile(profile);if(state.entries.some(entry=>entry.spent_on<profile.start_week))throw Error('The starting week must be on or before your earliest spending entry, including removed entries.');const saved=await db.saveProfile(profile,state);state.profile=saved;$('settings-dialog').close();await boot();},'settings-error');};
-$('auth-form').onsubmit=e=>{e.preventDefault();lock(async()=>{await db.login($('username').value.trim(),$('password').value);$('password').value='';await boot();},'auth-feedback');};
-$('signup').onclick=()=>{if(!$('auth-form').reportValidity())return;lock(async()=>{await db.signup($('username').value.trim(),$('password').value);$('password').value='';await boot();},'auth-feedback');};
+$('auth-form').onsubmit=e=>{e.preventDefault();lock(async()=>{await db.login($('username').value.trim());await boot();},'auth-feedback');};
 $('signout').onclick=()=>lock(async()=>{await db.logout();state={profile:null,entries:[]};editing=null;undone=null;$('undo-bar').hidden=true;await boot();});
 $('refresh').onclick=()=>lock(async()=>{if(editing)throw Error('Save or cancel your edit before refreshing.');await boot();});
 $('export').onclick=()=>{const exportData={exported_at:new Date().toISOString(),timezone:'Europe/Ljubljana',weekly_minutes:600,...state,ledger:ledger(state.profile,state.entries)};const url=URL.createObjectURL(new Blob([JSON.stringify(exportData,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`time-bank-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
