@@ -1,0 +1,17 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {today,monday,addDays,dateNumber,duration,validateEntry,ledger,formatMinutes,validateProfile} from '../core.js';
+const profile={start_week:'2026-11-02',opening_minutes:0};
+const entry=(day,minutes,extra={})=>({id:'e',spent_on:day,minutes,note:'Scout evening',start_time:null,end_time:null,next_day:false,created_at:'2026-11-14T12:00:00Z',...extra});
+test('first week receives 10h, next Monday adds another 10h',()=>{assert.equal(ledger(profile,[],'2026-11-08').at(-1).balance,600);assert.equal(ledger(profile,[],'2026-11-09').at(-1).balance,1200);});
+test('3h + 5h spent, then 10h new credit leaves 12h',()=>{const rows=ledger(profile,[entry('2026-11-03',180),entry('2026-11-07',300,{id:'b'})],'2026-11-09');assert.deepEqual(rows.map(r=>r.balance),[600,420,120,720]);});
+test('unopened weeks accumulate with no cap or duplicated credits',()=>{const rows=ledger(profile,[],'2027-11-01');assert.equal(rows.length,53);assert.equal(rows.at(-1).balance,31800);assert.deepEqual(ledger(profile,[],'2027-11-01'),rows);});
+test('date-only week arithmetic survives DST changes',()=>{assert.equal(addDays('2026-10-19',7),'2026-10-26');assert.equal(monday('2026-10-25'),'2026-10-19');});
+test('Ljubljana local midnight determines the date',()=>{assert.equal(today(new Date('2026-11-08T23:01:00Z')),'2026-11-09');assert.equal(today(new Date('2026-07-05T22:01:00Z')),'2026-07-06');});
+test('from/to handles same-day, overnight and 24h',()=>{assert.equal(duration('17:15','20:45'),210);assert.equal(duration('23:30','01:00',true),90);assert.equal(duration('10:00','10:00',true),1440);assert.throws(()=>duration('23:30','01:00'));assert.throws(()=>duration('10:00','10:00'));assert.throws(()=>duration('10:00','12:00',true));});
+test('opening balance, negative balances and exact minutes',()=>{const rows=ledger({...profile,opening_minutes:31},[entry('2026-11-03',700)],'2026-11-04');assert.deepEqual(rows.map(r=>r.balance),[31,631,-69]);assert.equal(formatMinutes(-69),'−1h 9m');assert.equal(formatMinutes(31,true),'+0h 31m');});
+test('credit is applied before same-day spending',()=>{assert.deepEqual(ledger(profile,[entry('2026-11-02',60)],'2026-11-02').map(r=>r.balance),[600,540]);});
+test('removed entries do not count, restoring counts them once',()=>{assert.equal(ledger(profile,[entry('2026-11-03',60,{deleted_at:'2026-11-04'})],'2026-11-04').at(-1).balance,600);assert.equal(ledger(profile,[entry('2026-11-03',60,{deleted_at:null})],'2026-11-04').at(-1).balance,540);});
+test('invalid dates, future dates, fractions and pre-start entries are rejected',()=>{assert.throws(()=>dateNumber('2026-02-30'));assert.throws(()=>validateProfile({...profile,start_week:'2026-11-03'}));for(const e of [entry('2026-11-01',60),entry('2026-11-15',60),entry('2026-11-04',0),entry('2026-11-04',30.5),entry('2026-11-14',90,{start_time:'23:30',end_time:'01:00',next_day:true})])assert.throws(()=>validateEntry(e,profile,'2026-11-14'));});
+test('time duration must match stored minutes',()=>{assert.throws(()=>validateEntry(entry('2026-11-03',60,{start_time:'17:00',end_time:'19:00'}),profile,'2026-11-14'));});
+test('empty weeks remain visible in the full ledger',()=>{const rows=ledger(profile,[entry('2026-11-14',60)],'2026-11-16');assert.equal(rows.filter(r=>r.kind==='credit').length,3);assert.equal(rows.at(-1).balance,1740);});
