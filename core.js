@@ -12,6 +12,12 @@ export function today(now = new Date()) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 export function monday(day) { return addDays(day, -((new Date(dateNumber(day)).getUTCDay() + 6) % 7)); }
+export function nextCredit(profile, asOf = today()) {
+  const skipped = new Set(profile.skipped_credit_weeks || []);
+  let day = addDays(monday(asOf), 7);
+  while (skipped.has(day)) day = addDays(day, 7);
+  return day;
+}
 export function formatMinutes(value, signed = false) {
   const n = Math.abs(value), sign = value < 0 ? '−' : signed && value > 0 ? '+' : '';
   return `${sign}${Math.floor(n / 60)}h${n % 60 ? ` ${n % 60}m` : ''}`;
@@ -31,6 +37,11 @@ export function validateProfile(profile, asOf = today()) {
   if (profile.start_week < '1900-01-01') throw Error('Choose a starting week in 1900 or later.');
   if (profile.start_week > asOf) throw Error('The starting week cannot be in the future.');
   if (!Number.isSafeInteger(profile.opening_minutes) || Math.abs(profile.opening_minutes) > 6000000) throw Error('Enter a valid opening balance.');
+  if (!Array.isArray(profile.skipped_credit_weeks || [])) throw Error('Invalid credit adjustment.');
+  for (const day of profile.skipped_credit_weeks || []) {
+    dateNumber(day);
+    if (day < profile.start_week || monday(day) !== day) throw Error('Invalid credit adjustment.');
+  }
 }
 export function validateEntry(entry, profile, asOf = today()) {
   dateNumber(entry.spent_on);
@@ -45,9 +56,12 @@ export function validateEntry(entry, profile, asOf = today()) {
 export function ledger(profile, entries, asOf = today()) {
   validateProfile(profile, asOf);
   const rows = [];
+  const skipped = new Set(profile.skipped_credit_weeks || []);
   if (profile.opening_minutes) rows.push({id:'opening',day:profile.start_week,kind:'opening',minutes:profile.opening_minutes,note:'Opening balance',order:'0'});
   for (let day = profile.start_week; day <= asOf; day = addDays(day,7)) {
-    rows.push({id:`credit-${day}`,day,kind:'credit',minutes:WEEKLY_MINUTES,note:'Weekly allowance',order:'1'});
+    rows.push(skipped.has(day)
+      ? {id:`skipped-${day}`,day,kind:'adjustment',minutes:0,note:'Weekly credit skipped for schedule adjustment',order:'1'}
+      : {id:`credit-${day}`,day,kind:'credit',minutes:WEEKLY_MINUTES,note:'Weekly allowance',order:'1'});
   }
   for (const entry of entries) {
     if (entry.deleted_at || entry.spent_on > asOf) continue;

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {today,monday,addDays,dateNumber,duration,validateEntry,ledger,formatMinutes,validateProfile} from '../core.js';
+import {today,monday,addDays,dateNumber,duration,validateEntry,ledger,formatMinutes,validateProfile,nextCredit} from '../core.js';
 const profile={start_week:'2026-11-02',opening_minutes:0};
 const entry=(day,minutes,extra={})=>({id:'e',spent_on:day,minutes,note:'Scout evening',start_time:null,end_time:null,next_day:false,created_at:'2026-11-14T12:00:00Z',...extra});
 test('first week receives 10h, next Monday adds another 10h',()=>{assert.equal(ledger(profile,[],'2026-11-08').at(-1).balance,600);assert.equal(ledger(profile,[],'2026-11-09').at(-1).balance,1200);});
@@ -15,3 +15,20 @@ test('removed entries do not count, restoring counts them once',()=>{assert.equa
 test('invalid dates, future dates, fractions and pre-start entries are rejected',()=>{assert.throws(()=>dateNumber('2026-02-30'));assert.throws(()=>validateProfile({...profile,start_week:'2026-11-03'}));for(const e of [entry('2026-11-01',60),entry('2026-11-15',60),entry('2026-11-04',0),entry('2026-11-04',30.5),entry('2026-11-14',90,{start_time:'23:30',end_time:'01:00',next_day:true})])assert.throws(()=>validateEntry(e,profile,'2026-11-14'));});
 test('time duration must match stored minutes',()=>{assert.throws(()=>validateEntry(entry('2026-11-03',60,{start_time:'17:00',end_time:'19:00'}),profile,'2026-11-14'));});
 test('empty weeks remain visible in the full ledger',()=>{const rows=ledger(profile,[entry('2026-11-14',60)],'2026-11-16');assert.equal(rows.filter(r=>r.kind==='credit').length,3);assert.equal(rows.at(-1).balance,1740);});
+test('skips only the adjustment Monday for Nick and resumes the following week',()=>{
+ const adjusted={start_week:'2026-11-09',opening_minutes:0,skipped_credit_weeks:['2026-11-16']};
+ const spends=[entry('2026-11-13',300),entry('2026-11-15',40,{id:'second'}),entry('2026-11-16',60,{id:'third'})];
+ const rows=ledger(adjusted,spends,'2026-11-16');
+ assert.equal(rows.at(-1).balance,200);
+ assert.equal(rows.find(r=>r.day==='2026-11-16'&&r.kind==='adjustment')?.minutes,0);
+ assert.equal(rows.some(r=>r.day==='2026-11-16'&&r.kind==='credit'),false);
+ assert.equal(nextCredit(adjusted,'2026-11-16'),'2026-11-23');
+ const next=ledger(adjusted,spends,'2026-11-23');
+ assert.equal(next.at(-1).balance,800);
+ assert.equal(next.filter(r=>r.kind==='credit').length,2);
+ assert.equal(ledger(profile,spends,'2026-11-16').at(-1).balance,1400);
+});
+test('rejects invalid skipped dates',()=>{
+ assert.throws(()=>validateProfile({...profile,skipped_credit_weeks:['2026-11-17']},'2026-11-18'));
+ assert.throws(()=>validateProfile({...profile,skipped_credit_weeks:['2026-10-26']},'2026-11-18'));
+});

@@ -13,6 +13,7 @@ A small, responsive time allowance tracker: receive **10 hours every Monday**, s
 - No rollover limit. Negative balances remain visible and are covered by future credits.
 - JSON export includes settings, records and the calculated ledger.
 - Ljubljana calendar dates; Monday credit is independent of daylight saving time. Weekly credits accumulate even while the app is closed.
+- Per-bank dated credit exceptions appear in the ledger. For `nickk`, Monday 16 November 2026 is skipped while the original starting week's 10 hours are retained. The next credit is Monday 23 November.
 - Dependency-free frontend; integer-minute arithmetic and automated calculation tests.
 
 ## Username-only access
@@ -56,5 +57,7 @@ The app is a static website. In repository **Settings → Pages**, choose **Depl
 ## Calculation rules
 
 All amounts use whole minutes. The starting Monday receives 600 minutes immediately; every elapsed Monday contributes another 600. Opening minutes are added once. Credits and spending are sorted by calendar date; opening balance and weekly credit come before spending on the same date. Timed spending uses start time within a date; duration-only spending follows timed entries. The list is a daily accounting ledger, not a claim about the exact intraday order of duration-only entries.
+
+`supabase/credit_adjustment.sql` records the one-off exception on `nickk`'s profile. It has already been applied; do not rerun it on the configured project. The exception has zero minutes in the visible history and does not affect other time banks or later Mondays.
 
 From/to duration is elapsed wall-clock time, not timezone-adjusted stopwatch time. Mark `Ends next day` for overnight outings. An outing can last up to 24 hours. Dates before the start week and future dates are rejected. Editing the starting week cannot place existing records before the start. The full 10h weekly allowance applies even if you begin using the app midway through the starting week.

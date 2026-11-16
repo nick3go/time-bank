@@ -1,4 +1,4 @@
-import {today,monday,addDays,formatMinutes,duration,validateEntry,validateProfile,ledger} from './core.js';
+import {today,monday,nextCredit,formatMinutes,duration,validateEntry,validateProfile,ledger} from './core.js';
 import * as db from './store.js';
 const $=id=>document.getElementById(id);
 let state={profile:null,entries:[]}, editing=null, undone=null, busy=false, lastDay=today();
@@ -13,14 +13,14 @@ function draw(){
  $('balance').textContent=formatMinutes(balance);$('balance').classList.toggle('negative',balance<0);$('balance-note').textContent=balance<0?'You have used some time in advance. Future credits will cover it.':'Your next adventure is on the clock.';
  $('week-spent').textContent=formatMinutes(-spends.filter(r=>r.day>=week).reduce((n,r)=>n+r.minutes,0));
  $('total-gained').textContent=formatMinutes(rows.filter(r=>r.kind==='credit').reduce((n,r)=>n+r.minutes,0));$('total-spent').textContent=formatMinutes(-spends.reduce((n,r)=>n+r.minutes,0));
- $('next-credit').textContent=`Next credit: ${displayDate(addDays(week,7))}`;
+ $('next-credit').textContent=`Next credit: ${displayDate(nextCredit(state.profile,asOf))}`;
  const prior=rows.filter(r=>r.day<week).at(-1)?.balance||0;$('carryover').textContent=`Carried into this week: ${formatMinutes(prior)}`;
  $('spent-on').min=state.profile.start_week;$('spent-on').max=asOf;$('start-week').max=asOf;
  $('storage-label').textContent=db.cloudEnabled?`Synced · ${db.accountUsername()}`:'Saved on this browser only';
  const list=$('history-list');list.replaceChildren();
  for(const row of [...rows].reverse()){
   const element=document.createElement('article');element.className='history-row '+row.kind;
-  const icon=document.createElement('span');icon.className='transaction-icon';icon.setAttribute('aria-hidden','true');icon.textContent=row.kind==='spend'?'↗':'+';
+  const icon=document.createElement('span');icon.className='transaction-icon';icon.setAttribute('aria-hidden','true');icon.textContent=row.kind==='spend'?'↗':row.kind==='adjustment'?'—':'+';
   const detail=document.createElement('div');const title=document.createElement('h3');title.textContent=row.note||(row.kind==='spend'?'Time spent':'Weekly allowance');const date=document.createElement('p');date.textContent=displayDate(row.day)+(row.start_time?` · ${row.start_time.slice(0,5)}–${row.end_time.slice(0,5)}${row.next_day?' (+1 day)':''}`:'');detail.append(title,date);
   if(row.kind==='spend'){const actions=document.createElement('div');actions.className='row-actions';for(const [name,action] of [['Edit',()=>edit(row.id)],['Remove',()=>remove(row.id)]]){const button=document.createElement('button');button.textContent=name;button.setAttribute('aria-label',`${name} ${row.note||'time spent'} on ${displayDate(row.day)}`);button.onclick=()=>!busy&&action();actions.append(button);}detail.append(actions);}
   const amounts=document.createElement('div');amounts.className='transaction-amount';const amount=document.createElement('strong');amount.textContent=formatMinutes(row.minutes,true);const after=document.createElement('small');after.textContent=`${formatMinutes(row.balance)} balance`;amounts.append(amount,after);element.append(icon,detail,amounts);list.append(element);
@@ -44,7 +44,7 @@ $('undo').onclick=()=>lock(async()=>{const entry=state.entries.find(e=>e.id===un
 $('spend-tab').onclick=()=>switchTab(false);$('history-tab').onclick=()=>switchTab(true);$('settings').onclick=openSettings;$('close-settings').onclick=()=>$('settings-dialog').close();$('settings-dialog').addEventListener('cancel',e=>{if(!state.profile)e.preventDefault();});$('cancel-edit').onclick=resetForm;
 $('spend-form').addEventListener('input',updatePreview);
 $('spend-form').onsubmit=e=>{e.preventDefault();lock(async()=>{const timed=document.querySelector('input[name=mode]:checked').value==='times';const old=state.entries.find(e=>e.id===editing);const entry={id:editing||crypto.randomUUID(),spent_on:$('spent-on').value,minutes:getMinutes(),note:$('note').value.trim(),start_time:timed?$('start-time').value:null,end_time:timed?$('end-time').value:null,next_day:timed&&$('next-day').checked,created_at:old?.created_at||new Date().toISOString(),deleted_at:null};validateEntry(entry,state.profile);const saved=await db.saveEntry(entry,state);state.entries=editing?state.entries.map(item=>item.id===editing?saved:item):[...state.entries,saved];draw();resetForm();$('duration-preview').textContent='Saved. Your balance is up to date.';},'form-error');};
-$('settings-form').onsubmit=e=>{e.preventDefault();lock(async()=>{const profile={start_week:$('start-week').value,opening_minutes:Math.round(Number($('opening-hours').value)*60)};validateProfile(profile);if(state.entries.some(entry=>entry.spent_on<profile.start_week))throw Error('The starting week must be on or before your earliest spending entry, including removed entries.');const saved=await db.saveProfile(profile,state);state.profile=saved;$('settings-dialog').close();await boot();},'settings-error');};
+$('settings-form').onsubmit=e=>{e.preventDefault();lock(async()=>{const profile={start_week:$('start-week').value,opening_minutes:Math.round(Number($('opening-hours').value)*60),skipped_credit_weeks:state.profile?.skipped_credit_weeks || []};validateProfile(profile);if(state.entries.some(entry=>entry.spent_on<profile.start_week))throw Error('The starting week must be on or before your earliest spending entry, including removed entries.');const saved=await db.saveProfile(profile,state);state.profile=saved;$('settings-dialog').close();await boot();},'settings-error');};
 $('auth-form').onsubmit=e=>{e.preventDefault();lock(async()=>{await db.login($('username').value.trim());await boot();},'auth-feedback');};
 $('signout').onclick=()=>lock(async()=>{await db.logout();state={profile:null,entries:[]};editing=null;undone=null;$('undo-bar').hidden=true;await boot();});
 $('refresh').onclick=()=>lock(async()=>{if(editing)throw Error('Save or cancel your edit before refreshing.');await boot();});
